@@ -1,16 +1,16 @@
 {
-  "name": "Building-mirror",
-  "description": "Mirror tool for building",
+  "name": "Building-circle",
+  "description": "Circle tool for building",
   "author": "Aware",
   "commands": [
     {
-      "name": "/mirror",
+      "name": "/circle",
       "description": "Replace a color with another color",
-      "example": "/mirror x",
+      "example": "/circle size",
       "args": [
         {
-          "name": "axis",
-          "description": "Rotate on the X, Y, Z axis, or multiple at once",
+          "name": "size",
+          "description": "Size to set the circle to",
           "required": true
         }
       ]
@@ -18,12 +18,12 @@
   ],
   "config": {
     "only-authorized": {
-      "description": "Whether only authorized players can use mirror commands",
+      "description": "Whether only authorized players can use circle commands",
       "type": "boolean",
       "default": true
     },
     "authorized-users": {
-      "description": "List of players who can always use mirror commands",
+      "description": "List of players who can always use circle commands",
       "type": "players",
       "default": []
     }
