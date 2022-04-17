@@ -1,11 +1,11 @@
-# Mirror plugin
+# Circle plugin
 
-Mirror a selection of bricks and load at the ghost brick location.
+Create a circle from your selected brick.
 
 ## Install
 
-* `git clone https://github.com/mraware/omegga-mirror mirror` in `plugins` directory
+* `git clone https://github.com/mraware/omegga-circle circle` in `plugins` directory
 
 ## Commands
 
- * `/mirror` - mirror a selection of bricks across X, Y, or Z axis
+ * `/circle {radius} {fill}` - create a circle from your selected brick

@@ -5,7 +5,7 @@
   "commands": [
     {
       "name": "/circle",
-      "description": "Replace a color with another color",
+      "description": "Generate a circle",
       "example": "/circle size",
       "args": [
         {
