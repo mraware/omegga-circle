@@ -6,7 +6,19 @@
     {
       "name": "/circle",
       "description": "Generate a circle",
-      "example": "/circle size",
+      "example": "/circle 10",
+      "args": [
+        {
+          "name": "size",
+          "description": "Size to set the circle to",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "/circleoutliner",
+      "description": "Generate a circle, alternative to the normal command that matches the outliner algorithm",
+      "example": "/circleoutliner 10",
       "args": [
         {
           "name": "size",
@@ -26,6 +38,12 @@
       "description": "List of players who can always use circle commands",
       "type": "players",
       "default": []
+    },
+    "authorized-roles": {
+      "description": "List of roles who can always use circle commands",
+      "type": "list",
+      "itemType": "role",
+      "default": ["Admin"]
     }
   }
 }

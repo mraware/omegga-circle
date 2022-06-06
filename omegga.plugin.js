@@ -7,10 +7,11 @@ class BuildingCircle {
 
   async init() {
     this.omegga
-      .on('cmd:circle', this.circle)
+      .on('cmd:circle', this.circleStacking)
+      .on('cmd:circleoutliner', this.circleOutliner)
 
     return {
-      registeredCommands: ['circle']
+      registeredCommands: ['circle', 'circleoutliner']
     };
   }
 
@@ -18,9 +19,10 @@ class BuildingCircle {
     const player = this.omegga.getPlayer(senderName);
     if (
       this.config['only-authorized'] && !player.isHost() &&
-      !this.config['authorized-users'].some(p => {
-        return player.id === p.id
-      })
+      (
+        (!this.config['authorized-users'] || !this.config['authorized-users'].some(p => player.id === p.id)) &&
+        (!this.config['authorized-roles'] || !player.getRoles().some(role => this.config['authorized-roles'].includes(role)))
+      )
     ) {
       this.omegga.whisper(senderName, '<color="ff0000">Unauthorized to use command.</>');
       return true;
@@ -36,7 +38,7 @@ class BuildingCircle {
         return first
       }
       const { center, minBound, maxBound } = global.OMEGGA_UTIL.brick.getBounds({ brick_assets: [brickGenerated.type], bricks: [first, last] });
-      const size = [Math.abs(minBound[0]-maxBound[0])/2, Math.abs(minBound[1]-maxBound[1])/2, Math.abs(minBound[2]-maxBound[2])/2]
+      const size = [Math.abs(minBound[0] - maxBound[0]) / 2, Math.abs(minBound[1] - maxBound[1]) / 2, Math.abs(minBound[2] - maxBound[2]) / 2]
       return {
         ...first,
         position: center,
@@ -76,7 +78,62 @@ class BuildingCircle {
     return optimizeDirection(optimizeDirection(bricks, 0, 1), 1, 0);
   }
 
-  generateCircle(radius, color, fill, brickGenerated) {
+  generateCircle = (radius, color, fill, brickGenerated) => {
+    const bricks = [];
+
+    function addBrick(x, y) {
+      bricks.push({
+        color,
+        owner_index: 0,
+        size: brickGenerated.size,
+        position: [x * brickGenerated.size[0] * 2, y * brickGenerated.size[1] * 2, brickGenerated.size[2] * 2],
+        material_index: 0,
+        direction: 4,
+        rotation: 0
+      })
+    }
+
+    let x = 0;
+    let y = radius;
+    let d = -(radius >>> 1);
+
+    while (x <= y) {
+      if (x === 0) {
+        addBrick(x, y);
+        addBrick(y, x);
+        addBrick(-y, x);
+        addBrick(-x, -y);
+      } else if (x === y) {
+        addBrick(x, y);
+        addBrick(-y, x);
+        addBrick(-x, -y);
+        addBrick(y, -x);
+      } else {
+        addBrick(x, y);
+        addBrick(y, x);
+        addBrick(-y, x);
+        addBrick(-x, -y);
+        addBrick(-x, y);
+        addBrick(y, -x);
+        addBrick(-y, -x);
+        addBrick(x, -y);
+      }
+
+
+      if (d <= 0) {
+        x++;
+        d += x;
+      } else {
+        y--;
+        d -= y;
+      }
+    }
+
+    return this.optimize(bricks, fill, brickGenerated);
+  }
+
+
+  generateCircleOutliner = (radius, color, fill, brickGenerated) => {
     const bricks = [];
 
     function addBrick(x, y) {
@@ -86,14 +143,14 @@ class BuildingCircle {
         color,
         owner_index: 0,
         size: brickGenerated.size,
-        position: [ x*brickGenerated.size[0]*2, y*brickGenerated.size[1]*2, brickGenerated.size[2]*2],
+        position: [x * brickGenerated.size[0] * 2, y * brickGenerated.size[1] * 2, brickGenerated.size[2] * 2],
         material_index: 0,
         direction: 4,
         rotation: 0
       })
     }
 
-    let f = 1- radius;
+    let f = 1 - radius;
     let ddF_x = 0;
     let ddF_y = -2 * radius;
     let x = 0;
@@ -104,7 +161,7 @@ class BuildingCircle {
     addBrick(radius, 0)
     addBrick(-radius, 0)
 
-    while(x < y) {
+    while (x < y) {
       if (f >= 0) {
         y--;
         ddF_y += 2;
@@ -114,7 +171,7 @@ class BuildingCircle {
       ddF_x += 2;
       f += ddF_x + 1;
 
-      if (y<x) {
+      if (y < x) {
         break;
       }
 
@@ -134,8 +191,26 @@ class BuildingCircle {
     return this.optimize(bricks, fill, brickGenerated);
   }
 
-  circle = async (senderName, radius, fill = 0) => {
-    if(this.unauthorized(senderName)) return;
+  circleOutliner = async (senderName, radius, fill = 0) => {
+    try {
+      await this.circle(senderName, radius, this.generateCircleOutliner, fill)
+    }
+    catch (e) {
+      console.log(e);
+    }
+  }
+
+  circleStacking = async (senderName, radius, fill = 0) => {
+    try {
+      await this.circle(senderName, radius, this.generateCircle, fill)
+    }
+    catch (e) {
+      console.log(e);
+    }
+  }
+
+  circle = async (senderName, radius, generatorFunc, fill = 0) => {
+    if (this.unauthorized(senderName)) return;
     if (radius) {
       const player = this.omegga.getPlayer(senderName);
       const nameColor = player.getNameColor();
@@ -156,27 +231,59 @@ class BuildingCircle {
         version: 10,
         materials: [paint.material],
         brick_assets: [brickGenerated.type],
-        bricks: this.generateCircle(radius, paint.color, +fill, brickGenerated)
+        bricks: generatorFunc(+radius, paint.color, +fill, brickGenerated)
       };
-      await player.loadSaveData(saveData);
+
+
+      // get bounds of the bricks
+      const bounds = global.OMEGGA_UTIL.brick.getBounds(saveData);
+
+      const orientation =
+        global.OMEGGA_UTIL.brick.BRICK_CONSTANTS.orientationMap[brickGenerated.orientation];
+      saveData.bricks = saveData.bricks.map(brick =>
+        global.OMEGGA_UTIL.brick.rotate(brick, orientation)
+      );
+      // rotate bounds, if we dont use the original bounds they are off by 1 sometimes >:(
+      bounds.minBound = global.OMEGGA_UTIL.brick.BRICK_CONSTANTS.translationTable[
+        global.OMEGGA_UTIL.brick.d2o(...orientation)
+      ](bounds.minBound);
+      bounds.maxBound = global.OMEGGA_UTIL.brick.BRICK_CONSTANTS.translationTable[
+        global.OMEGGA_UTIL.brick.d2o(...orientation)
+      ](bounds.maxBound);
+      bounds.center = global.OMEGGA_UTIL.brick.BRICK_CONSTANTS.translationTable[
+        global.OMEGGA_UTIL.brick.d2o(...orientation)
+      ](bounds.center);
+
+      // calculate offset from bricks center to ghost brick center
+      const offset = bounds.center.map(
+        (center, index) => brickGenerated.location[index] - center
+      );
+
+      await player.loadSaveData(saveData, { offX: offset[0], offY: offset[1], offZ: offset[2] });
     } else {
       this.omegga.whisper(senderName, 'Must enter a radius');
     }
   }
+
+
 
   // getall BrickGridPreviewActor SimpleParameters
   // [2021.04.12-03.29.40:573][579]0) BrickGridPreviewActor /Game/Maps/Plate/Plate.Plate:PersistentLevel.BrickGridPreviewActor_2147482489.SimpleParameters = (BrickType=(BrickType=BrickTypeGenerated'"/Game/Bricks/Procedural/PB_DefaultBrick.PB_DefaultBrick:BrickTypeGenerated_2147482394"'),BrickColor=(B=255,G=255,R=255,A=255),MaterialAlpha=5,PreviewIgnoredBricks=)
 
   // GetAll BrickTypeGenerated HalfSize
   // [2021.04.12-03.51.37:292][ 65]0) BrickTypeGenerated /Game/Bricks/Procedural/PB_DefaultBrick.PB_DefaultBrick:BrickTypeGenerated_2147482394.HalfSize = (X=5,Y=5,Z=12)
-  async getGeneratedGhostBrick({controller}) {
+
+  // BrickGridPreviewActor /Game/Maps/Plate/Plate.Plate:PersistentLevel.BrickGridPreviewActor_2147482509.TransformParameters = (TargetGrid="BrickGridComponent",Position=(X=285,Y=-365,Z=6),Orientation=Z_Positive_0)
+  async getGeneratedGhostBrick({ controller }) {
     const ownerRegExp = /^(?<index>\d+)\) BrickGridPreviewActor (.+):PersistentLevel\.(?<actor>BrickGridPreviewActor_\d+)\.Owner = BP_PlayerController_C'(.+):PersistentLevel\.(?<controller>BP_PlayerController_C_\d+)'$/;
     const simpleParamsRegExp = /^(?<index>\d+)\) BrickGridPreviewActor (.+):PersistentLevel\.(?<actor>BrickGridPreviewActor_\d+)\.SimpleParameters = \(BrickType=\(.*(\.(?<brickType>.+):(?<brickTypeGenerated>.+)"'|None)\),BrickColor=\(B=(?<b>\d*),G=(?<g>\d*),R=(?<r>\d*),A=(?<a>\d*)\),PreviewIgnoredBricks=.*\)$/;
+    const transformParamsRegExp = /^(?<index>\d+)\) BrickGridPreviewActor (.+):PersistentLevel\.(?<actor>BrickGridPreviewActor_\d+)\.TransformParameters = \(TargetGrid=("(?<targetGrid>.+)"|None),Position=\(X=(?<x>.+),Y=(?<y>.+),Z=(?<z>.+)\),Orientation=(?<orientation>.+)\)$/;
     const brickSizeRegExp = /^(?<index>\d+)\) BrickTypeGenerated .+:(?<actor>BrickTypeGenerated_\d+)\.HalfSize = \(X=(?<x>\d*),Y=(?<y>\d*),Z=(?<z>\d*)*\)$/;
 
-    const [ownersMatch, simpleParametersMatch] = await Promise.all([
-      this.omegga.watchLogChunk('GetAll BrickGridPreviewActor Owner', ownerRegExp, {first: 'index', timeoutDelay: 500}),
-      this.omegga.watchLogChunk('GetAll BrickGridPreviewActor SimpleParameters', simpleParamsRegExp, {first: 'index', timeoutDelay: 500}),
+    const [ownersMatch, simpleParametersMatch, transformParamsMatch] = await Promise.all([
+      this.omegga.watchLogChunk('GetAll BrickGridPreviewActor Owner', ownerRegExp, { first: 'index', timeoutDelay: 2000, afterMatchDelay: 100 }),
+      this.omegga.watchLogChunk('GetAll BrickGridPreviewActor SimpleParameters', simpleParamsRegExp, { first: 'index', timeoutDelay: 2000, afterMatchDelay: 100 }),
+      this.omegga.watchLogChunk('GetAll BrickGridPreviewActor TransformParameters', transformParamsRegExp, { first: 'index', timeoutDelay: 2000, afterMatchDelay: 100 }),
     ]);
 
 
@@ -195,7 +302,13 @@ class BuildingCircle {
 
     const { brickType, brickTypeGenerated } = simpleParameters.groups;
 
-    const brickSizeMatch = await this.omegga.watchLogChunk(`GetAll BrickTypeGenerated HalfSize Name=${brickTypeGenerated}`, brickSizeRegExp, {first: 'index', timeoutDelay: 500})
+    const transformParameters = transformParamsMatch.find(
+      transformParameters => transformParameters.groups.actor === actor
+    );
+
+    if (!transformParameters) return;
+
+    const brickSizeMatch = await this.omegga.watchLogChunk(`GetAll BrickTypeGenerated HalfSize Name=${brickTypeGenerated}`, brickSizeRegExp, { first: 'index', timeoutDelay: 500 })
 
     if (!brickSizeMatch || brickSizeMatch.length === 0)
       return;
@@ -203,7 +316,16 @@ class BuildingCircle {
     const brickSize = [+brickSizeMatch[0].groups.x, +brickSizeMatch[0].groups.y, +brickSizeMatch[0].groups.z];
 
 
-    return { type: brickType, size: brickSize }
+    return {
+      type: brickType,
+      size: brickSize,
+      location: [
+        +transformParameters.groups.x,
+        +transformParameters.groups.y,
+        +transformParameters.groups.z,
+      ],
+      orientation: transformParameters.groups.orientation,
+    }
   }
 
 
