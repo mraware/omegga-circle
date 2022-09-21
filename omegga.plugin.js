@@ -9,9 +9,10 @@ class BuildingCircle {
     this.omegga
       .on('cmd:circle', this.circleStacking)
       .on('cmd:circleoutliner', this.circleOutliner)
+      .on('cmd:oval', this.oval)
 
     return {
-      registeredCommands: ['circle', 'circleoutliner']
+      registeredCommands: ['circle', 'circleoutliner', 'oval']
     };
   }
 
@@ -265,7 +266,71 @@ class BuildingCircle {
     }
   }
 
+  oval = async (senderName, x, y, fill = 0) => {
+    try {
+      if (this.unauthorized(senderName)) return;
+      if (!x) {
+        this.omegga.whisper(senderName, 'Missing width');
+        return;
+      }
+      if (!y) {
+        this.omegga.whisper(senderName, 'Missing height');
+        return;
+      }
+      const player = this.omegga.getPlayer(senderName);
+      const nameColor = player.getNameColor();
+      this.omegga.broadcast(`<b><color="${nameColor}">${senderName}</></> creating oval with width ${x} and height ${y}...`);
+      const paint = await player.getPaint();
+      const brickGenerated = await this.getGeneratedGhostBrick(player);
 
+      if (!paint) {
+        this.omegga.whisper(senderName, 'Select a paint color.');
+        return;
+      }
+      if (!brickGenerated) {
+        this.omegga.whisper(senderName, 'Missing ghost brick.');
+        return;
+      }
+
+      let saveData = {
+        version: 10,
+        materials: [paint.material],
+        brick_assets: [brickGenerated.type],
+        bricks: this.generateOval(+x / 2, +y / 2, paint.color, +fill, brickGenerated)
+      };
+
+
+      // get bounds of the bricks
+      const bounds = global.OMEGGA_UTIL.brick.getBounds(saveData);
+
+      const orientation =
+        global.OMEGGA_UTIL.brick.BRICK_CONSTANTS.orientationMap[brickGenerated.orientation];
+      saveData.bricks = saveData.bricks.map(brick =>
+        global.OMEGGA_UTIL.brick.rotate(brick, orientation)
+      );
+      // rotate bounds, if we dont use the original bounds they are off by 1 sometimes >:(
+      bounds.minBound = global.OMEGGA_UTIL.brick.BRICK_CONSTANTS.translationTable[
+        global.OMEGGA_UTIL.brick.d2o(...orientation)
+      ](bounds.minBound);
+      bounds.maxBound = global.OMEGGA_UTIL.brick.BRICK_CONSTANTS.translationTable[
+        global.OMEGGA_UTIL.brick.d2o(...orientation)
+      ](bounds.maxBound);
+      bounds.center = global.OMEGGA_UTIL.brick.BRICK_CONSTANTS.translationTable[
+        global.OMEGGA_UTIL.brick.d2o(...orientation)
+      ](bounds.center);
+
+      // calculate offset from bricks center to ghost brick center
+      const offset = bounds.center.map(
+        (center, index) => brickGenerated.location[index] - center
+      );
+
+      await player.loadSaveData(saveData, { offX: offset[0], offY: offset[1], offZ: offset[2] });
+    }
+    catch (e) {
+      console.log(e)
+    }
+
+  }
 
   // getall BrickGridPreviewActor SimpleParameters
   // [2021.04.12-03.29.40:573][579]0) BrickGridPreviewActor /Game/Maps/Plate/Plate.Plate:PersistentLevel.BrickGridPreviewActor_2147482489.SimpleParameters = (BrickType=(BrickType=BrickTypeGenerated'"/Game/Bricks/Procedural/PB_DefaultBrick.PB_DefaultBrick:BrickTypeGenerated_2147482394"'),BrickColor=(B=255,G=255,R=255,A=255),MaterialAlpha=5,PreviewIgnoredBricks=)
@@ -328,10 +393,97 @@ class BuildingCircle {
     }
   }
 
+  // borrowed from https://www.geeksforgeeks.org/midpoint-ellipse-drawing-algorithm/ i'll give it back it's not stealing
+  generateOval = (rx, ry, color, fill, brickGenerated) => {
+    const bricks = [];
+
+    function addBrick(x, y) {
+      if (Object.is(x, -0) || Object.is(y, -0))
+        return;
+      bricks.push({
+        color,
+        owner_index: 0,
+        size: brickGenerated.size,
+        position: [x * brickGenerated.size[0] * 2, y * brickGenerated.size[1] * 2, brickGenerated.size[2] * 2],
+        material_index: 0,
+        direction: 4,
+        rotation: 0
+      })
+    }
+
+    var dx, dy, d1, d2, x, y;
+    x = 0;
+    y = ry;
+
+    // Initial decision parameter of region 1
+    d1 = (ry * ry) - (rx * rx * ry) +
+      (0.25 * rx * rx);
+    dx = 2 * ry * ry * x;
+    dy = 2 * rx * rx * y;
+
+    // For region 1
+    while (dx < dy) {
+      // add bricks based on 4-way symmetry
+      addBrick(x, y)
+      addBrick(-x, y)
+      addBrick(x, -y)
+      addBrick(-x, -y)
+
+      // Checking and updating value of
+      // decision parameter based on algorithm
+      if (d1 < 0) {
+        x++;
+        dx = dx + (2 * ry * ry);
+        d1 = d1 + dx + (ry * ry);
+      }
+      else {
+        x++;
+        y--;
+        dx = dx + (2 * ry * ry);
+        dy = dy - (2 * rx * rx);
+        d1 = d1 + dx - dy + (ry * ry);
+      }
+    }
+
+    // Decision parameter of region 2
+    d2 = ((ry * ry) * ((x + 0.5) * (x + 0.5))) +
+      ((rx * rx) * ((y - 1) * (y - 1))) -
+      (rx * rx * ry * ry);
+
+    // Plotting points of region 2
+    while (y >= 0) {
+      // add bricks based on 4-way symmetry
+      addBrick(x, y)
+      addBrick(-x, y)
+      addBrick(x, -y)
+      addBrick(-x, -y)
+
+
+      // Checking and updating parameter
+      // value based on algorithm
+      if (d2 > 0) {
+        y--;
+        dy = dy - (2 * rx * rx);
+        d2 = d2 + (rx * rx) - dy;
+      }
+      else {
+        y--;
+        x++;
+        dx = dx + (2 * ry * ry);
+        dy = dy - (2 * rx * rx);
+        d2 = d2 + dx - dy + (rx * rx);
+      }
+    }
+
+    return this.optimize(bricks, fill, brickGenerated);
+  }
+
 
   stop() {
     this.omegga
-      .removeAllListeners('cmd:circle');
+      .removeAllListeners('cmd:circle')
+      .removeAllListeners('cmd:circleoutliner')
+      .removeAllListeners('cmd:oval')
   }
 }
 

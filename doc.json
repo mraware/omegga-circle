@@ -26,6 +26,23 @@
           "required": true
         }
       ]
+    },
+    {
+      "name": "/oval",
+      "description": "Generate a oval",
+      "example": "/oval 10 25",
+      "args": [
+        {
+          "name": "height",
+          "description": "Height of the oval",
+          "required": true
+        },
+        {
+          "name": "width",
+          "description": "It's the width of the oval if you couldn't tell",
+          "required": true
+        }
+      ]
     }
   ],
   "config": {
